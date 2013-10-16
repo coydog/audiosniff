@@ -630,28 +630,28 @@ void handle_packet_spkr_array(handler_state *phs,
 /* TODO: #defines for EtherType tones here */
 #define MAX_TONES 		2048
 #ifdef __LINUX__
-#define DUR_ETYPE		10	/* duration for EtherType field freq */
-#define DUR_IPPROTO		10 /* TCP, UDP, ICMP, etc */
-#define DUR_FRAGMENTS   15 /* fragment offset */
+#define DUR_ETYPE		10		/* duration for EtherType field freq */
+#define DUR_IPPROTO		10 		/* TCP, UDP, ICMP, etc */
+#define DUR_FRAGMENTS   15 		/* fragment offset */
 #define DUR_ICMP		20 
 
 #else
-#define DUR_ETYPE		2	/* duration for EtherType field freq */
-#define DUR_IPPROTO		2 /* TCP, UDP, ICMP, etc */
-#define DUR_FRAGMENTS   3 /* fragment offset */
+#define DUR_ETYPE		2		/* duration for EtherType field freq */
+#define DUR_IPPROTO		2 		/* TCP, UDP, ICMP, etc */
+#define DUR_FRAGMENTS   3 		/* fragment offset */
 #define DUR_ICMP		4 
 #endif 
 
-#define FREQ_ARP 		660   /* E5 (above A) */
-#define FREQ_RARP		1319  /* E6 */
+#define FREQ_ARP 		660   	/* E5 (above A) */
+#define FREQ_RARP		1319  	/* E6 */
 #define FREQ_IPV4		440
-#define FREQ_IPV6		880   /* A5 */
-#define FREQ_ICMP_REQ	2217 /* D7	*/
-#define FREQ_ICMP_RES	1661 /* C#7	*/
-#define FREQ_TCP		494  /* C5 	*/
-/*#define FREQ_UDP		392*/ /* G 	*/
-#define FREQ_UDP		554  /* C# 	*/
-#define FREQ_UNKNOWN	262 /* C4 	*/
+#define FREQ_IPV6		880   	/* A5 */
+#define FREQ_ICMP_REQ	2217 	/* D7	*/
+#define FREQ_ICMP_RES	1661 	/* C#7	*/
+#define FREQ_TCP		494  	/* C5 	*/
+/*#define FREQ_UDP		392*/ 	/* G 	*/
+#define FREQ_UDP		554  	/* C# 	*/
+#define FREQ_UNKNOWN	262 	/* C4 	*/
 	int tncnt = 0;
 	tone_t tones[MAX_TONES+1];
 
@@ -762,7 +762,6 @@ void handle_packet_spkr_array(handler_state *phs,
 		default:
 			printf("Unknown EtherType!\n");
 			tones[tncnt++].frequency = FREQ_UNKNOWN;
-			
 			break;
 	} /* end switch h_typ (EtherType */
 
@@ -796,7 +795,7 @@ int InitAudio(handler_state *phs) {
 #endif
 }
 
-void DeInitAudion(handler_state *phs) {
+void DeInitAudio(handler_state *phs) {
 #ifdef __LINUX__
 	DeInitAudioLinux(phs);
 #endif
