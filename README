@@ -1,0 +1,41 @@
+This is audiosniff, a utility to represent network protocols as sound, using 
+the BSD speaker driver, or a built-in DSP tone generator on Linux, intended
+for use in education, network troubleshooting/debugging, or perhaps even music
+composition.
+
+TODO: Still needs a makefile. See compile_command.linux for Linux compilation;
+tweak paths and change __LINUX__ to __FREEBSD__, __OPENBSD__, or __NETBSD__ to 
+match your system. This distribution is NOT yet thoroughly tested, and
+definitely needs cleanup.
+
+To build on Linux, try
+
+    sh < compile_command.linux
+
+Linux version requires portaudio (probably available through your
+distribution's package manager). Portaudio doesn't always play well with Pulse.
+On Debian, Pulse will generally need to be removed for portaudio applications
+to work correctly. Tested and working on i386. amd64, or ARM.
+
+Tone timings may differ on Linux vs. BSD, since the BSD speaker driver has
+relatively low-resolution tone durations. In fact, this limitation on BSD has
+prevented me from adding representations of things like TCP options and even
+packet payloads, since these would cause a hopelessly large backlog of packets
+on an active system, and defeat the purpose of providing more or less realtime
+monitoring.
+
+On *BSD, make sure esr's speaker driver is compiled into your kernel.
+
+See "man speaker" or "man spkr" or similar.
+
+Copyright 2013 Coydog Software. See LICENSE.
+
+See 
+
+	http://github.com/coydog/audiosniff i
+	
+for the latest version, and
+
+	http://devio.us/~coydog/
+
+for the developer's homepage.
