@@ -1,0 +1,1 @@
+ cc -D__NETBSD__ -Wall -pedantic -lpcap -o audiosniff audiosniff.c             
