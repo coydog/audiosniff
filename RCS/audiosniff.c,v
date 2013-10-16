@@ -1,10 +1,30 @@
-head	1.19;
+head	1.23;
 access;
 symbols;
 locks
-	case:1.19; strict;
+	case:1.23; strict;
 comment	@ * @;
 
+
+1.23
+date	2013.06.08.06.14.41;	author case;	state Exp;
+branches;
+next	1.22;
+
+1.22
+date	2013.06.04.08.14.58;	author case;	state Exp;
+branches;
+next	1.21;
+
+1.21
+date	2013.06.04.08.12.25;	author case;	state Exp;
+branches;
+next	1.20;
+
+1.20
+date	2013.05.31.19.41.27;	author case;	state Exp;
+branches;
+next	1.19;
 
 1.19
 date	2013.05.07.23.31.34;	author case;	state Exp;
@@ -108,9 +128,9 @@ speaker driver.
 @
 
 
-1.19
+1.23
 log
-@Fixed IP header length issue (forgot was in words, not octets). Added IP protocol beeps for TCP and UDP.
+@Fixed sample format, tweaked buffer size. Last checkin before linking in tonegenerator.c and using simpler interface to encapsulate portaudio.
 @
 text
 @/* Thanks to networksorcery.com. This valuable resource saved me much time. Without them
@@ -130,6 +150,7 @@ text
 #include <sys/socket.h>
 #include <netinet/in.h>
 
+#define DEBUG 1
 /*#include <netinet/in_systm.h>*/ /* required by ip_icmp.h */
 /* #include <netinet/ip_icmp.h> */
 
@@ -154,6 +175,12 @@ text
 #define __BSD_SPEAKER__
 #include <dev/speaker/speaker.h>
 #endif
+
+#ifdef __LINUX__
+#include <portaudio.h>
+#include <math.h> /* sin() etc for waveform tone generation */
+#endif
+
 
 #include "pcaptoy.h"
 
@@ -210,8 +237,28 @@ typedef struct {
 	FILE *err; 		/* stderr 			*/
 	int fd_spkr; 	/* descriptor for speaker device */
 
+#ifdef __LINUX__ /* getting messy quick */
+	#define SAMPLE_RATE 44100
+	#define FRAMES_PER_BUFFER 128
+	#define WAVETABLE_SIZE 100
+	PaStream *pa;
+
+	float sine[WAVETABLE_SIZE];
+	int sine_lphase;
+	int sine_rphase;
+#endif
+
 	long count;
 } handler_state;
+
+int InitAudio(handler_state *phs); /* stub in everything but Linux */
+void DeInitAudio();
+
+#ifdef __LINUX__
+int InitAudioLinux(handler_state *phs);
+void DeInitAudioLinux();
+#endif
+			   
 
 /* print diagnostic messages from pcap return codes */
 int print_diag_pcap_options(int pcap_ret, const char *func, const handler_state *hs);
@@ -233,6 +280,11 @@ void handle_packet_spkr(handler_state *phs,
 void handle_packet_spkr_array(handler_state *phs,
 							const struct pcap_pkthdr *h,
 							const u_char *raw);
+
+#ifdef __LINUX__
+typedef struct {int frequency; int duration;} tone_t;
+void output_array_portaudio(handler_state *phs, tone_t *tones);
+#endif
 
 /* loop functions which pass through args to pcap handle errors appropriately */
 int do_pcap_loop	(pcap_t *p, int cnt, pcap_handler h, handler_state *phs);
@@ -274,6 +326,7 @@ int main(int argc, char** argv) {
 	hs.out = stdout;
 	hs.err = stderr;
 	hs.fd_spkr = open("/dev/speaker", O_WRONLY);
+	hs.pa = NULL;
 
 	/* do some input validation; ensure we can continue */
 	if (!(argc-1)) {
@@ -290,6 +343,10 @@ int main(int argc, char** argv) {
 	}
 	/* if we wanted to read from a previous capture, we could call
 	   pcap_open_offline() here instead.							*/
+
+	/* audio initialization - (portaudio on linux) */
+	if (!InitAudio(&hs))
+		exit(1);
 			
 	if ( !(p = pcap_create(szdev, errbuf))) {
 		fprintf(hs.err, "pcap_create() failed!: \n");
@@ -646,7 +703,7 @@ void handle_packet_print(handler_state *phs,
 			  case ETYPE_RARP:	
 			  default:
 				printf("Unknown EtherType! Weird, check it out!\n");
-				exit(1);	/* TODO:remove bailout on unknown EtherType? */
+				/*exit(1);*/	/* TODO:remove bailout on unknown EtherType? */
 			} 
 		}else {
 				printf("no EtherType; payload size %d\n", h_typ);
@@ -692,7 +749,6 @@ void handle_packet_spkr(handler_state *phs,
 void handle_packet_spkr_array(handler_state *phs, 
 							const struct pcap_pkthdr *h,
 							const u_char *raw) {
-#ifdef __BSD_SPEAKER__
 	/* tone for AF, encode src and dst addy's/ports, tone for 
 	   proto (TCP/UDP; start with TCP), encode payload */
 	/* TODO: How big to make tone_t array? Dynamically allocate? Figure out
@@ -713,19 +769,20 @@ void handle_packet_spkr_array(handler_state *phs,
 
 /* TODO: #defines for EtherType tones here */
 #define MAX_TONES 		2048
-#define DUR_ETYPE		5	/* duration for EtherType field freq */
-#define DUR_IPPROTO		5 /* TCP, UDP, ICMP, etc */
-#define DUR_FRAGMENTS	1   /* fragment offset */
-#define DUR_ICMP		10 
-#define FREQ_ARP 		660 /* E5 (above A) */
-#define FREQ_RARP		1320
+#define DUR_ETYPE		2	/* duration for EtherType field freq */
+#define DUR_IPPROTO		2 /* TCP, UDP, ICMP, etc */
+#define DUR_FRAGMENTS   3 /* fragment offset */
+#define DUR_ICMP		4 
+#define FREQ_ARP 		660   /* E5 (above A) */
+#define FREQ_RARP		1319  /* E6 */
 #define FREQ_IPV4		440
-#define FREQ_IPV6		880
-#define FREQ_ICMP_REQ	4186 /* might want higher octave even */
-#define FREQ_ICMP_RES	2093
-#define FREQ_TCP		523
-#define FREQ_UDP		392 /* G */
-#define FREQ_UNKNOWN	262 /* low C */
+#define FREQ_IPV6		880   /* A5 */
+#define FREQ_ICMP_REQ	2217 /* D7	*/
+#define FREQ_ICMP_RES	1661 /* C#7	*/
+#define FREQ_TCP		494  /* C5 	*/
+/*#define FREQ_UDP		392*/ /* G 	*/
+#define FREQ_UDP		554  /* C# 	*/
+#define FREQ_UNKNOWN	262 /* C4 	*/
 	int tncnt = 0;
 	tone_t tones[MAX_TONES+1];
 
@@ -834,26 +891,319 @@ void handle_packet_spkr_array(handler_state *phs,
 			/*tones[tncnt].duration = 0;*/
 			break;
 		default:
-			printf("Unknown EtherType!");
+			printf("Unknown EtherType!\n");
 			tones[tncnt++].frequency = FREQ_UNKNOWN;
 			
 			break;
 	} /* end switch h_typ (EtherType */
 
-	/* TODO: Maybe should terminate array here instead of within switch statements. Less likelihood
-	   of error, less code. Can assume any code that added to the array incremented the index. */
+	/* TODO: Maybe should terminate array here instead of within switch statements. 
+	 * Less likelihood of error, less code. Can assume any code that added to the 
+	 * array incremented the index. */
 	/* That way we can break when we run out of header, and still play the tones. */
 	tones[tncnt].duration = 0; /* terminate array */
 	/* array should be prepared, now send to ioctl. */
+
+#ifdef __BSD_SPEAKER__
 	if (ioctl(phs->fd_spkr, SPKRTUNE, tones) == -1)
 		perror("ioctl() failed!");
+#endif  /* __BSD_SPEAKER__ */
+#ifdef __LINUX__
+	output_array_portaudio(phs, tones);
+#endif /* __LINUX__ */
 
 
 	/* make sure the rest of IP header is contained in capture (paranoia) */
 	/*if (h->caplen < (ETHER_HDR_LEN + ip_hl) )
 		return; moved this into switch above  */
-#endif  /* __BSD_SPEAKER__ */
 }
+
+/* linux output function */
+void output_array_portaudio(handler_state *phs, tone_t *tones) {
+#ifdef __LINUX__
+#define FOO_SIZE 32
+	/*float foo_sample[FOO_SIZE];
+	int i = 0;
+	for (i = 0; i < FOO_SIZE; i++)
+		if (i % 2)
+			foo_sample[i] = (float)0.01*i*5;
+		else
+			foo_sample[i] = (float)0.001*i*5;
+	Pa_WriteStream(phs->pa, foo_sample, FOO_SIZE);*/
+
+	/* TODO: put a loop around this block; loop over tones array. */
+	int i = 0, j = 0, r = 0;
+	float buf[FRAMES_PER_BUFFER][2];/* stereo; two chans */
+	int lphase = 0, rphase = 0;
+	int lphaseinc = 1, rphaseinc = 3;
+
+	tone_t footone = {220, 3};
+	lphase = SAMPLE_RATE / footone.frequency;
+	rphase = SAMPLE_RATE / footone.frequency;
+	/* get number of buffer writes, based on millisecond duration */
+	printf("duration in seconds: %f\n", ((float)footone.duration) / 1000);
+	printf("duration times SAMPLE_RATE: %f\n", ((float)footone.duration / 1000) * SAMPLE_RATE);
+	printf("(d * rate) / FRAMES_PER_BUFFER: %f\n", (((float)footone.duration/1000)*SAMPLE_RATE) 
+														/ FRAMES_PER_BUFFER);
+	int writecount = (int)( ((((float)footone.duration) / 1000) * SAMPLE_RATE) / FRAMES_PER_BUFFER);
+	/*writecount = 1;*/
+	printf("writecount: %d duration: %d SAMPLE_RATE:%d FRAMES_PER_BUFFER: %d\n", 
+				writecount, footone.duration, SAMPLE_RATE, FRAMES_PER_BUFFER);
+	for (i = 0; i < writecount; i++) {
+		for (j = 0; j < FRAMES_PER_BUFFER; j++) {
+			buf[j][0] = phs->sine[lphase];
+			buf[j][1] = phs->sine[rphase];
+			lphase += lphaseinc;
+			if (lphase >= WAVETABLE_SIZE)
+				lphase -= WAVETABLE_SIZE;
+			rphase += rphaseinc;
+			if (rphase >= WAVETABLE_SIZE)
+				rphase -= WAVETABLE_SIZE;
+
+			r = Pa_WriteStream(phs->pa, buf, FRAMES_PER_BUFFER);
+			if (r != paNoError)
+				printf("Pa_WriteStream() error in loop: %s\n", Pa_GetErrorText(r));
+		} /* ***** TODO: misplaced brace? Shouldn't I write AFTER this loop, not within it? **** TODO ****** */
+	}
+#endif
+}
+
+int InitAudio(handler_state *phs) {
+
+#ifdef __LINUX__
+	return InitAudioLinux(phs);
+#else
+	return 1;
+#endif
+}
+
+void DeInitAudio() {
+#ifdef __LINUX__
+	DeInitAudioLinux();
+#endif
+}
+
+#ifdef __LINUX__
+int InitAudioLinux(handler_state *phs) {
+#define NUM_CHANS 1
+#define PA_SAMPLE_TYPE 0 /* ??? */
+
+	int i = 0;
+	int r = 0;
+	PaStreamParameters inParams, outParams;
+	const PaDeviceInfo *pdevinfo = NULL;
+	memset(&inParams, sizeof(inParams), '0');
+	memset(&outParams, sizeof(outParams), '0');
+
+	r = Pa_Initialize(); /* must come first */
+	if (r != paNoError) {
+		printf("Error: Pa_Initialize() error: %s\n", Pa_GetErrorText(r));
+		return 0;
+	}
+
+	/* TODO: could invalid device be from input device? What's appropriate for NONE? */
+
+	/* Can we just pass NULL for input params?*/
+	inParams.device = r = Pa_GetDefaultInputDevice();
+	if (inParams.device < 0) {
+		printf("error! from Pa_GetDefaultInputDevice(): %s\n", Pa_GetErrorText(r));
+	}
+	inParams.channelCount = NUM_CHANS;
+	pdevinfo = Pa_GetDeviceInfo(inParams.device);
+	if (pdevinfo == NULL) {
+		printf("error! from Pa_GetDeviceInfo()\n");
+		return 0;
+	}
+	inParams.sampleFormat = pdevinfo->defaultSampleRate; /* ??? */
+	inParams.suggestedLatency = pdevinfo->defaultHighInputLatency;
+	inParams.hostApiSpecificStreamInfo = NULL;
+
+	outParams.device = r = Pa_GetDefaultOutputDevice();
+	if (outParams.device < 0) {
+		printf("error! from Pa_GetDefaultOutputDevice(): %s\n", Pa_GetErrorText(r));
+	}
+	outParams.channelCount = NUM_CHANS;
+	pdevinfo = Pa_GetDeviceInfo(outParams.device);
+	if (pdevinfo == NULL) {
+		printf("error! from Pa_GetDeviceInfo()\n");
+		return 0;
+	}
+	outParams.sampleFormat = pdevinfo->defaultSampleRate; /* ??? */
+	printf("Getting portaudio latency...\n");
+	outParams.suggestedLatency = pdevinfo->defaultHighOutputLatency;
+	outParams.hostApiSpecificStreamInfo = NULL;
+
+
+	/* TODO: need PaStream object. Ugh, don't wanna 
+	 * do a global. Need to pass around another state object?
+	 * Can it be the handler_state? Maybe so, since will need
+	 * it in the handler function. */
+	/*r = Pa_OpenStream(&(phs->pa),
+			/ *&inParams,* /		/ *input parameters * /
+			NULL,
+			&outParams, 
+			/ *SAMPLE_RATE,* /
+			outParams.sampleFormat,
+			FRAMES_PER_BUFFER,
+			paClipOff,
+			NULL, 		/ * callback ptr * /
+			NULL);*/		/* callback userdata */
+	r = Pa_OpenDefaultStream(&(phs->pa),
+	  		0, /* input chans */
+			2, /* output chans */
+			paFloat32, /* or specify eg paInt24 */
+			SAMPLE_RATE,
+			0,
+			NULL,
+			NULL);
+	if (r != paNoError) {
+		printf("Error: Pa_OpenStream() error!: %s\n", Pa_GetErrorText(r));
+		return 0;
+	}
+
+	r = Pa_StartStream(phs->pa);
+	if (r != paNoError) {
+		printf("Error, Pa_StartStream() error: %s\n", Pa_GetErrorText(r));
+		return 0;
+	}
+
+	/* build a wave table for tone generation. Copied from portaudio examples */
+	if (DEBUG) fprintf(phs->err, "Building wavetable...\n");
+	for (i = 0; i < WAVETABLE_SIZE; i++) {
+		phs->sine[i] = (float)sin( (double)i / (double)WAVETABLE_SIZE * M_PI * 2.);
+		if (DEBUG) fprintf(phs->err, "%d: %f\n", i, phs->sine[i]);
+	}
+			
+
+	return 1;
+}
+
+void DeInitAudioLinux() {
+	Pa_Terminate();
+
+}
+#endif
+@
+
+
+1.22
+log
+@syntax
+@
+text
+@d18 1
+d108 1
+a108 1
+	#define WAVETABLE_SIZE 200
+d789 1
+a789 1
+#define FOO_SIZE 1024
+d804 4
+a807 1
+	tone_t footone = {440, 200};
+d814 1
+d831 1
+a831 1
+		}
+d919 1
+a919 1
+			paInt24, /* or specify eg paInt24 */
+d921 1
+a921 1
+			FRAMES_PER_BUFFER,
+d936 2
+a937 1
+	for (i = 0; i < WAVETABLE_SIZE; i++)
+d939 3
+@
+
+
+1.21
+log
+@crappy phased sine generation
+Needs analysis
+@
+text
+@d814 1
+a814 1
+			buf[j][0] = phs->sine[lphase]);
+@
+
+
+1.20
+log
+@Added portaudio init code and output stub for linux. Added ifdef's and typedef for Linux
+to handle BSD tone_t struct.
+@
+text
+@d45 1
+d105 3
+d109 4
+d764 3
+a766 2
+	/* TODO: Maybe should terminate array here instead of within switch statements. Less likelihood
+	   of error, less code. Can assume any code that added to the array incremented the index. */
+d788 2
+a789 2
+#define FOO_SIZE 256
+	float foo_sample[FOO_SIZE];
+d792 5
+a796 3
+		foo_sample[i] = (float)220;
+
+	Pa_WriteStream(phs->pa, foo_sample, FOO_SIZE);
+d798 30
+a849 2
+#define SAMPLE_RATE 44100
+#define FRAMES_PER_BUFFER paFramesPerBufferUnspecified /* TODO */
+d851 1
+d913 1
+a913 1
+			1, /* output chans */
+d929 4
+@
+
+
+1.19
+log
+@Fixed IP header length issue (forgot was in words, not octets). Added IP protocol beeps for TCP and UDP.
+@
+text
+@d43 5
+d103 4
+d110 9
+d140 5
+d185 1
+d202 4
+d562 1
+a562 1
+				exit(1);	/* TODO:remove bailout on unknown EtherType? */
+a607 1
+#ifdef __BSD_SPEAKER__
+d628 6
+a633 6
+#define DUR_ETYPE		5	/* duration for EtherType field freq */
+#define DUR_IPPROTO		5 /* TCP, UDP, ICMP, etc */
+#define DUR_FRAGMENTS	1   /* fragment offset */
+#define DUR_ICMP		10 
+#define FREQ_ARP 		660 /* E5 (above A) */
+#define FREQ_RARP		1320
+d635 7
+a641 6
+#define FREQ_IPV6		880
+#define FREQ_ICMP_REQ	4186 /* might want higher octave even */
+#define FREQ_ICMP_RES	2093
+#define FREQ_TCP		523
+#define FREQ_UDP		392 /* G */
+#define FREQ_UNKNOWN	262 /* low C */
+d750 1
+a750 1
+			printf("Unknown EtherType!");
+d761 2
+d765 4
+a773 1
+#endif  /* __BSD_SPEAKER__ */
+d775 123
 @
 
 

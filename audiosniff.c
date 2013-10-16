@@ -15,6 +15,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 
+#define DEBUG 1
 /*#include <netinet/in_systm.h>*/ /* required by ip_icmp.h */
 /* #include <netinet/ip_icmp.h> */
 
@@ -39,6 +40,12 @@
 #define __BSD_SPEAKER__
 #include <dev/speaker/speaker.h>
 #endif
+
+#ifdef __LINUX__
+#include <portaudio.h>
+#include "tonegenerator.h"
+#endif
+
 
 #include "audiosniff.h"
 
@@ -67,8 +74,16 @@
    to maximize code reuse. We can build other toys for other
    platforms based on this module, maybe... */
 
+/* timings are quirky with BSD speaker vs. portaudio (pa seems higher
+ * resolution, more accurate; BSD has natural stacatto) */
+#ifdef __LINUX__
+/* TODO: These aren't being used!!@!@1 */
+#define PCAPTOY_NOTEDURATION_HEADER		500
+#define PCAPTOY_NOTEDURATION_PAYLOAD	500
+#else
 #define PCAPTOY_NOTEDURATION_HEADER		50
 #define PCAPTOY_NOTEDURATION_PAYLOAD	50
+#endif
 
 /* arrrgh not working, forget it for now */
 #if 0
@@ -95,8 +110,21 @@ typedef struct {
 	FILE *err; 		/* stderr 			*/
 	int fd_spkr; 	/* descriptor for speaker device */
 
+#ifdef __LINUX__ /* getting messy quick */
+	TG_State tonegen;
+#endif
+
 	long count;
 } handler_state;
+
+int InitAudio(handler_state *phs); /* stub in everything but Linux */
+void DeInitAudio();
+
+#ifdef __LINUX__
+int InitAudioLinux(handler_state *phs);
+void DeInitAudioLinux();
+#endif
+			   
 
 /* print diagnostic messages from pcap return codes */
 int print_diag_pcap_options(int pcap_ret, const char *func, const handler_state *hs);
@@ -175,6 +203,10 @@ int main(int argc, char** argv) {
 	}
 	/* if we wanted to read from a previous capture, we could call
 	   pcap_open_offline() here instead.							*/
+
+	/* audio initialization - (portaudio on linux) */
+	if (!InitAudio(&hs))
+		exit(1);
 			
 	if ( !(p = pcap_create(szdev, errbuf))) {
 		fprintf(hs.err, "pcap_create() failed!: \n");
@@ -468,7 +500,7 @@ void handle_packet_print(handler_state *phs,
 
 	/* TODO: Whoops, can't really assume IP at this point. Need to look at 
 	   EtherType first? */
-	u_char ip_vr  = hdr_ip->ip_vhl >> 4; /* could macros in audiosniff.h */
+	u_char ip_vr  = hdr_ip->ip_vhl >> 4; /* could use macros in audiosniff.h */
 	u_char ip_hl  = hdr_ip->ip_vhl & 0x0f; /* header length */
 	u_short ip_len = ntohs(hdr_ip->ip_len);	/* IP packet total len */
 	u_short ip_flagoff = ntohs(hdr_ip->ip_off);
@@ -577,7 +609,6 @@ void handle_packet_spkr(handler_state *phs,
 void handle_packet_spkr_array(handler_state *phs, 
 							const struct pcap_pkthdr *h,
 							const u_char *raw) {
-#ifdef __BSD_SPEAKER__
 	/* tone for AF, encode src and dst addy's/ports, tone for 
 	   proto (TCP/UDP; start with TCP), encode payload */
 	/* TODO: How big to make tone_t array? Dynamically allocate? Figure out
@@ -598,10 +629,19 @@ void handle_packet_spkr_array(handler_state *phs,
 
 /* TODO: #defines for EtherType tones here */
 #define MAX_TONES 		2048
+#ifdef __LINUX__
+#define DUR_ETYPE		10	/* duration for EtherType field freq */
+#define DUR_IPPROTO		10 /* TCP, UDP, ICMP, etc */
+#define DUR_FRAGMENTS   15 /* fragment offset */
+#define DUR_ICMP		20 
+
+#else
 #define DUR_ETYPE		2	/* duration for EtherType field freq */
 #define DUR_IPPROTO		2 /* TCP, UDP, ICMP, etc */
 #define DUR_FRAGMENTS   3 /* fragment offset */
 #define DUR_ICMP		4 
+#endif 
+
 #define FREQ_ARP 		660   /* E5 (above A) */
 #define FREQ_RARP		1319  /* E6 */
 #define FREQ_IPV4		440
@@ -726,17 +766,48 @@ void handle_packet_spkr_array(handler_state *phs,
 			break;
 	} /* end switch h_typ (EtherType */
 
-	/* TODO: Maybe should terminate array here instead of within switch statements. Less likelihood
-	   of error, less code. Can assume any code that added to the array incremented the index. */
+	/* TODO: Maybe should terminate array here instead of within switch statements. 
+	 * Less likelihood of error, less code. Can assume any code that added to the 
+	 * array incremented the index. */
 	/* That way we can break when we run out of header, and still play the tones. */
 	tones[tncnt].duration = 0; /* terminate array */
 	/* array should be prepared, now send to ioctl. */
+
+#ifdef __BSD_SPEAKER__
 	if (ioctl(phs->fd_spkr, SPKRTUNE, tones) == -1)
 		perror("ioctl() failed!");
+#endif  /* __BSD_SPEAKER__ */
+#ifdef __LINUX__
+	TG_WriteBufferedSequence(&(phs->tonegen), tones);
+#endif /* __LINUX__ */
 
 
 	/* make sure the rest of IP header is contained in capture (paranoia) */
 	/*if (h->caplen < (ETHER_HDR_LEN + ip_hl) )
 		return; moved this into switch above  */
-#endif  /* __BSD_SPEAKER__ */
 }
+
+int InitAudio(handler_state *phs) {
+
+#ifdef __LINUX__
+	return InitAudioLinux(phs);
+#else
+	return 1;
+#endif
+}
+
+void DeInitAudion(handler_state *phs) {
+#ifdef __LINUX__
+	DeInitAudioLinux(phs);
+#endif
+}
+
+#ifdef __LINUX__
+int InitAudioLinux(handler_state *phs) {
+	return TG_Init(&(phs->tonegen));
+}
+
+void DeInitAudioLinux(handler_state *phs) {
+	TG_DeInit(&(phs->tonegen));
+}
+#endif
