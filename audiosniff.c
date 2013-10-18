@@ -1,7 +1,7 @@
 /* Thanks to networksorcery.com. This valuable resource saved me much time. Without them
    I would have had to wade through a LOT of RFC's. Their hypertext breakdowns of every 
-   protocol imaginable, along with diagrams, made this much easier.	The info is out there
-   in other places, but I've never seen a better centralized comprehensive reference.		 */
+   protocol imaginable, along with diagrams, made this much easier. The info is out there
+   in other places, but I've never seen a better centralized comprehensive reference.   */
 
 #include <stdlib.h>
 #include <stdio.h>
