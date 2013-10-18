@@ -15,7 +15,7 @@ To build on Linux, try
 Linux version requires portaudio (probably available through your
 distribution's package manager). Portaudio doesn't always play well with Pulse.
 On Debian, Pulse will generally need to be removed for portaudio applications
-to work correctly. Tested and working on i386. amd64, or ARM.
+to work correctly. Tested and working on i386, amd64, or ARM.
 
 Tone timings may differ on Linux vs. BSD, since the BSD speaker driver has
 relatively low-resolution tone durations. In fact, this limitation on BSD has
