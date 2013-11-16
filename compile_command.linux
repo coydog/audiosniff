@@ -1,1 +1,1 @@
- cc -D__LINUX__ -D_BSD_SOURCE -Wall -pedantic -lpcap -lportaudio -lm -o pcaptoy audiosniff.c tonegenerator.c
+ cc -D__LINUX__ -D_BSD_SOURCE -Wall -pedantic -lpcap -lportaudio -lm -o audiosniff audiosniff.c tonegenerator.c
