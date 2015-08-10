@@ -1,0 +1,15 @@
+CC=cc
+
+# TODO: Since portaudio works as advertised, Linux port will be basis for portable build
+# TODO: split out linker flags
+CFLAGS=-Wall -ansi -D__LINUX__
+CFLAGS+=-I/usr/local/include/
+CFLAGS+=-L/usr/local/lib -lm -lportaudio -lpcap
+
+# TODO: figure out a way to keep a target for old Open/Free/NetBSD speaker driver build
+
+audiosniff: audiosniff.c tonegenerator.c
+	$(CC) $(CFLAGS) -o audiosniff audiosniff.c tonegenerator.c
+
+depend:
+	$(CC) $(CFLAGS) -E -MM audiosniff.c tonegenerator.c > .depend
